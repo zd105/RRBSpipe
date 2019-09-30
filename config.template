@@ -1,0 +1,91 @@
+########################################################
+### CONFIGURE FILE FOR PIPELINE: RRBS.v1.1.pipeline ####
+########################################################
+
+#############
+# USAGE #####
+#############
+#       1. Making a project running environment:
+#              Run a screen window for a new project, 
+#              the screen should not be quit until the 
+#              project run finished.
+#       2. Customize your configure file:
+#              Modify this configure file according to 
+#              your project.
+#       3. Configure your project:
+#              Cat this configure file in the screen of
+#               your project, copy and run the output in comandline.
+########################################################
+
+#########################################################
+# Project: your must modified for each new project. #####
+#########################################################
+
+# the new projet path
+export Pj_path=/public/agis/gaofei_group/zhangdu/5_program/06_yongnuo3RRBS/
+
+# reference sequence file
+export ref_fa=/public/agis/gaofei_group/zhangdu/4_DB/01_genome/mmu/UCSC/mmu10.fa
+
+# reference annotation file
+export ref_anno=/public/agis/gaofei_group/zhangdu/4_DB/01_genome/mmu/UCSC/mmu10.refGene.txt.gz
+
+# reference database name: UCSC, NCBI or esemble 
+export ref_db=UCSC
+
+# reference cgi information file
+export ref_cgi=/public/agis/gaofei_group/zhangdu/4_DB/01_genome/mmu/UCSC/mmu10.cpgIslandExt.txt.gz
+
+# reference repeats information file
+export ref_rep=/public/agis/gaofei_group/zhangdu/4_DB/01_genome/mmu/UCSC/mmu10.RepeatMaser.txt.gz
+
+# samples.map file
+export map=/public/agis/gaofei_group/zhangdu/5_program/06_yongnuo3RRBS/samples.map
+
+
+#############################################################################################
+# Software: modified only when software upgrade or run pipeline in a new computer cluster ###
+#############################################################################################
+
+# Self-developed scripts path
+export myscr_path=/public/agis/gaofei_group/zhangdu/5_program/PIPELINE/RRBS/RRBS.v1.1/script
+
+# Python 2.7.8 or later version
+export python2=/public/software/bin/python
+
+# Python 3.6.4 or later version
+export python3=/public/agis/gaofei_group/zhangdu/2_soft/miniconda3/bin/python
+
+# fastqc
+export fastqc=~/mybin/fastqc
+
+# cutadapt-1.9 or later version
+export cutadapt=/public/agis/gaofei_group/zhangdu/2_soft/cutadapt-1.9/bin/cutadapt
+
+# Rscript 3.4 or later version
+# R package reqiured: [ ggplot2;vioplot;ade4;pvclust;seqLogo;corrplot; ]
+export Rscript=/public/home/zhangdu/src/R-3.4.2/builddir/bin/Rscript
+
+## bsmap, version >= 2.73
+export bsmap=/public/agis/gaofei_group/zhangdu/2_soft/bsmap-2.73/
+
+# metilene dir, version >= 0.2-6
+export metilene=/public/agis/gaofei_group/zhangdu/2_soft/metilene_v0.2-6/
+
+# EAGE program path
+export EAGE=/public/agis/gaofei_group/zhangdu/3_script/EAGE/
+
+# bedtools
+export bedtools=/public/agis/gaofei_group/zhangdu/2_soft/bedtools2/bin/bedtools
+
+###############
+### Database ##
+###############
+
+# lambda DNA sequence
+export Control=/public/agis/gaofei_group/zhangdu/3_script/pipeline/Methylome/WGBS-seq-1.0/Example/reference/Control.fa
+
+
+###########
+####END####
+###########

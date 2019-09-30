@@ -1,0 +1,363 @@
+#!/usr/bin/sh
+##############################################################################################################################
+#### This is a pipeline for RRBS ####################
+#### version: v1.1
+#### author:  zhangdu
+#### date:    2018-08-08
+##############################################################################################################################
+
+######## 00 data preparation ###############
+
+# 0.1 Put raw fastq data in $Pj_path/00_rawdata
+# 0.2 Creat "samples.map" in $Pj_path/:    format: #Group	SampleID	fq1	fq2
+# 0.3 Modify the "config.template" file according to your project
+# 0.4 Run a screen window to config a new project
+
+######## 01 RRBS data clean ###########
+### 1.1 raw fastqc check  ####
+mkdir -p $Pj_path/01_cleandata/01_raw_fastqc
+perl $myscr_path/RawFastqc_batch.v1.1.pl -i $map -p $Pj_path/00_rawdata/ -o $Pj_path/01_cleandata/01_raw_fastqc/ -fastqc $fastqc -t 4
+#|---result files:
+#                /jobs/
+#                all.pbs
+cd $Pj_path/01_cleandata/01_raw_fastqc/jobs
+sh all.sge
+#|---result files:
+#                 sampleid_R1/2._fastqc.html
+#                 sampleid_R1/2._fastqc.zip
+
+### 1.2 clean ###
+perl $myscr_path/rrbs_fq_clean.v1.2.pl -i $map -p $Pj_path/00_rawdata/ -o $Pj_path/01_cleandata/02_clean/ -m 0 -py3 $python3 -cut $cutadapt
+
+#|---result files:
+#                /jobs/
+#                all.pbs
+
+# run clean
+cd $Pj_path/01_cleandata/02_clean/jobs
+sh all.sge
+#|---result files:
+#                sampleid.clean.1/2.fq.gz
+#                many fq.gz temple files       ------delete it after following fq stat step
+
+### 1.3 fastqc check  ####
+mkdir $Pj_path/01_cleandata/03_clean_fastqc
+perl $myscr_path/BS_CleanFastqc_batch.v1.0.pl -i $map -p $Pj_path/01_cleandata/02_clean/ -o $Pj_path/01_cleandata/03_clean_fastqc/ -fastqc $fastqc -t 4
+#|---result files:
+#                /jobs/
+#                all.pbs
+cd $Pj_path/01_cleandata/03_clean_fastqc/jobs
+sh all.sge
+#|---result files:
+#                 sampleid.clean.1/2._fastqc.html
+#                 sampleid.clean.1/2._fastqc.zip
+
+### 1.4 data clean stat  ###
+mkdir $Pj_path/01_cleandata/04_qc_stat
+perl $myscr_path/BS_qc_stat.v1.0.pl -i $map -p $Pj_path/01_cleandata/02_clean/ -o $Pj_path/01_cleandata/04_qc_stat/
+#|---result files:
+#                /jobs/
+#                all.pbs
+cd $Pj_path/01_cleandata/04_qc_stat/jobs
+sh all.sge
+#|---result files:
+#                 sampleid.raw.xls
+#                 sampleid.noAdapter.xls
+#                 sampleid.clean.xls
+
+cd $Pj_path/01_cleandata//04_qc_stat/
+# "YNRBS" is the comon prefix of samples id
+sh $myscr_path/qc_stat.v1.0.sh $Pj_path/01_cleandata/04_qc_stat/ YNRBS
+#|---result files:
+#                 QC_result.xls
+
+########### 02 methylation level calling for C site ##############
+mkdir $Pj_path/02_methycalling
+
+######### 2.1 mapping ###########
+mkdir $Pj_path/02_methycalling/01_bsmap
+#-m :p for pair-end; s for single end.
+perl $myscr_path/rrbs_mapping_batch.v1.0.pl -i $map -m p -r $ref_fa -p $Pj_path/01_cleandata/02_clean/ \
+-o $Pj_path/02_methycalling/01_bsmap -t 4 -soft 0 -softdir $bsmap
+#|---result files:
+#                /jobs/
+#                all.sge
+#                all.sge
+cd $Pj_path/02_methycalling/01_bsmap/jobs
+# for SGE job sub:
+sh all.sge
+#|---result files:
+#                sampleid.merge.bam
+#                sampleid.mapping.stat --------simple mapping result stat
+
+######## 2.2 generate cout ############
+mkdir $Pj_path/02_methycalling/02_cout
+perl $myscr_path/rrbs_cout_batch.v1.0.pl -i $map -r $ref_fa -b $Pj_path/02_methycalling/01_bsmap/ \
+-o $Pj_path/02_methycalling/02_cout/ -py2 $python2 -bsmap $bsmap
+#|---result files:
+#                /jobs/
+#                all.sge
+#                all.pbs
+cd $Pj_path/02_methycalling/02_cout/jobs
+sh all.sge
+#|---result files:
+#                sampleid.cout.gz
+
+######## 2.3 methylation calling for lamda DNA ############
+mkdir $Pj_path/02_methycalling/03_control
+perl $myscr_path/rrbs_control_batch.v1.0.pl -i $map -m p -r $Control -p $Pj_path/01_cleandata/02_clean/ \
+-o $Pj_path/02_methycalling/03_control/ -bsmap $bsmap -t 8
+#|---result files:
+#                /jobs/
+#                all.sge
+#                all.pbs
+
+cd $Pj_path/02_methycalling/03_control/jobs
+sh all.sge
+#|---result files:
+#                 sampleid.control.cout.gz
+
+######## 2.4 stat ###############
+# "YNRBS" is the prefix of sample name
+# "YES" for lamda DNA CT convertion rate stat,else "NO"
+mkdir $Pj_path/02_methycalling/04_stat
+sh  $myscr_path/rrbs_final.stat.v1.1.sh $Pj_path YNRBS YES
+#|---result files:
+#                01.QC-mapping_stat.xls
+
+
+######## 03 global methylation profile ##########
+##### 3.1 coverage and depth #######
+mkdir $Pj_path/03_global_methy
+mkdir $Pj_path/03_global_methy/01_coverage_depth
+perl $myscr_path/BS_GlobalMethy_batch.v1.0.pl -i $map -r $ref_fa -c $Pj_path/02_methycalling/02_cout/ -o $Pj_path/03_global_methy/01_coverage_depth/ -d 30 -Rscript $Rscript
+#|---result files:
+#                /jobs/
+#                all.sge
+#                all.pbs
+cd $Pj_path/03_global_methy/01_coverage_depth/jobs
+sh all.sge
+#|---result files:
+#                ./sampleid/04.sampleid_cover_depth.stat.xls
+#                ./sampleid/sampleid.accu_cover.pdf
+#                ./sampleid/sampleid.averge_methyl.xls
+#                ./sampleid/sampleid.coverage_depth.xls
+#                ./sampleid/sampleid.mCG.seqlogo.pdf
+#                ./sampleid/sampleid.mCHG.seqlogo.pdf
+#                ./sampleid/sampleid.mCHH.seqlogo.pdf
+
+## merge stat result
+cd $Pj_path/03_global_methy/01_coverage_depth
+sh $myscr_path/merge_methy_stat.v1.0.sh $Pj_path YNRBS $Rscript
+#|---result files:
+#                04.all.averge_methyl.xls
+#                05.all.coverage_depth.xls
+#                all.averge_methyl.pdf
+#                global_methy_type.pieplot.pdf
+
+#### 3.2 global methylation pattern in chr #####
+mkdir $Pj_path/03_global_methy/02_global_pattern
+# set the -m to desision the min plot chr length.
+perl $myscr_path/BS_Globalpattern_batch.v1.0.pl -i $map -r $ref_fa -c $Pj_path/02_methycalling/02_cout/ \
+-o $Pj_path/03_global_methy/02_global_pattern/ -m 500000 -Rscript $Rscript
+#|---result files:/jobs/
+ #                all.sge
+#                all.pbs
+cd $Pj_path/03_global_methy/02_global_pattern/jobs
+sh all.sge
+#|---result files:
+#                genome.500000.chr_list    ------------ chr list to plot
+#                genome.GC_stat            ------------genome GC stat
+#                chr*.global_pattern.xls
+#                chr*.global_pattern.pdf   --------CG,CHG,CHH methylation pattern in chr*
+
+#### 3.3 gene element methylation level ######
+mkdir $Pj_path/03_global_methy/03_element_methy
+perl $myscr_path/BS_ElementMethy_batch.v1.2.pl -i $map -db $ref_db -r $ref_fa -anno $ref_anno -cgi $ref_cgi -repeat $ref_rep -c $Pj_path/02_methycalling/02_cout \
+-o $Pj_path/03_global_methy/03_element_methy -Rscript $Rscript
+#|---result files:/jobs/
+#                all.sge
+#                all.pbs
+cd $Pj_path/03_global_methy/03_element_methy/jobs
+sh all.sge
+#|---result files:
+#                sampleid.genome.cgi/cgi_shore/cgi_shelf/promoter/down1k/down2k/exon/genebody/intergenic/intron/up2k/up1k/exon1/intron1/cds.methy.txt
+#                sampleid.genome.CG.violin_plot.pdf
+#                sampleid.genome.genetic.violin_plot.pdf
+#                sampleid.genome.repeats.violin_plot.pdf
+
+#plot
+perl $myscr_path/plot_element_methy.v1.0.pl -i $map -p $Pj_path/03_global_methy/03_element_methy/ -o $Pj_path/03_global_methy/03_element_methy/ \
+-e cgi,cgi_shore,cgi_shelf,promoter,down1k,down2k,exon,genebody,intergenic,intron,up2k,up1k,exon1,intron1,cds,5utr,3utr,DNA,LINE,LTR,Retroposon,RNA,Satellite,SINE,Low_complexity,Simple_repeat -Rscript $Rscript
+#|---result files:
+#                all.sample.genome.cgi.methy.txt
+#                all.sample.genome.cgi.methy_vioplot.pdf
+#                all.group.genome.cgi.methy_vioplot.pdf
+
+
+#### 3.4  global/element methylation change between samples/groups ######
+mkdir $Pj_path/03_global_methy/04_pattern_change
+
+
+
+
+############# 04 clustering ##############
+mkdir $Pj_path/04_Cluster_analyses
+
+##### 4.1 CG depth filtering and generate .bedgragh #######
+mkdir $Pj_path/04_Cluster_analyses/01_bedgraph
+# filtering CG by >= 5x in depth
+perl $myscr_path/BS_bedgraph_batch.v1.0.pl -i $map -c $Pj_path/02_methycalling/02_cout -o $Pj_path/04_Cluster_analyses/01_bedgraph -bedtools $bedtools -d 5
+#|---result files:/jobs/
+#                all.sge
+#                all.pbs
+cd $Pj_path/04_Cluster_analyses/01_bedgraph/jobs
+sh all.sge
+#|---result files:
+#                sampleid.5xCG.bedgraph
+
+##### 4.2 clustering #####
+mkdir $Pj_path/04_Cluster_analyses/02_clustering
+# generate the standard methylation matrix
+# PCA, Hierarchical clustering and PCC
+perl $myscr_path/BS_makeMatrix.v1.2.pl -i $map -b $Pj_path/04_Cluster_analyses/01_bedgraph -o $Pj_path/04_Cluster_analyses/02_clustering \
+-d 5 -t CG -bedtools $bedtools -Rscript $Rscript
+#|---result files:
+#                /mC/
+#                /mCG/
+#                /mCHG/
+#                /mCHH/
+#                5xC/CG/CHG/CHH.methy_Matrix.txt
+#                5xC/CG/CHG/CHH.methy_Matrix.txt.PCC.pdf
+#                5xC/CG/CHG/CHH.methy_Matrix.txt.PCA.pdf
+#                5xC/CG/CHG/CHH.methy_Matrix.txt.hclust.pdf
+#                5xC/CG/CHG/CHH.methy_Matrix.txt.pvclust.pdf
+
+## a suplymentary methylation stacked bar plot for samples and groups
+mkdir $Pj_path/03_global_methy/05_stackbar
+perl $myscr_path/BS_stackbar.v1.0.pl -i $map -b $Pj_path/04_Cluster_analyses/01_bedgraph -o $Pj_path/03_global_methy/05_stackbar \
+-t CG,CHG,CHH -d 5 -bedtools $bedtools -Rscript $Rscript
+#|---result files:
+#                 all_samples/CON-AraC.5xC/CG/CHG/CHH_stackbar.pdf
+
+########## 05 DMC finding ###########
+mkdir -p $Pj_path/05_DMC_analyses/01_DMC_detection
+##### 5.1 DMR detection #####
+# you could use p-value or q-value to filter DMRs
+# specify X,Y as you sample number
+
+
+
+
+######### 06 DMR findng ############
+mkdir -p $Pj_path/06_DMR_analyses/01_DMR_detection
+##### 6.1 DMR detection #####
+# you could use p-value or q-value to filter DMRs
+# specify X,Y as you sample number
+perl $myscr_path/BS_DMRdetect.v1.1.pl -i $map -b $Pj_path/04_Cluster_analyses/01_bedgraph -o $Pj_path/06_DMR_analyses/01_DMR_detection -thread 8 \
+-t CG -d 5 -q 0.05 -maxdist 300 -minc 5 -ele global -diff 0.1 -X 1 -Y 1 -pairwise CON-AraC,CON-DAC -Rscript $Rscript -bedtools $bedtools -metilene $metilene
+#|---result files:
+#                ./mCG/
+#                ./CON-AraC/
+#                ./CON-DAC/
+#                ./global-5x-5CG-dist300-D0.1-Q0.05/
+#                CON-AraC.dmr.filter_qval.0.05.bedgraph
+#                CON-AraC.dmr.filter_qval.0.05.DMR_difference_histogram.pdf
+#                CON-AraC.dmr.filter_qval.0.05.DMR_mC_length_distribution.pdf
+#                CON-AraC.dmr.filter_qval.0.05.DMR_methylation_distribution.pdf
+#                CON-AraC.dmr.filter_qval.0.05.DMR_nt_length_distribution.pdf
+#                CON-AraC.dmr.filter_qval.0.05.DMR_nt-mC_number.pdf
+#                CON-AraC.dmr.filter_qval.0.05.DMR_q_val-difference.pdf
+#                CON-AraC.dmr.filter_qval.0.05.DMR_scatter_plot.pdf
+#                CON-AraC.dmr.filter_qval.0.05.DMR_violin_plot.pdf
+#                CON-AraC.dmr.filter_qval.0.05.out.xls
+#                CON-AraC.dmr.xls                                        --------------DMR information table
+
+##### 6.2 DMR annotation #####
+mkdir $Pj_path/06_DMR_analyses/02_DMR_annotation
+export group="CON-AraC" && export rules="global-5x-5CG-dist300-D0.1-Q0.05"
+perl $myscr_path/BS_DMRannotate.v1.1.pl -i $Pj_path/06_DMR_analyses/01_DMR_detection/mCG_DMR/$group/$rules/$group.dmr.filter_qval.0.05.out.xls \
+-p $Pj_path -o $Pj_path/06_DMR_analyses/02_DMR_annotation/mCG_DMR/$group/$rules/ -ele promoter,genebody
+#|---result files:
+#                default.annolist
+#                $group.dmr.filter_qval.0.05.out.xls.annotate.xls
+#                $group.dmr.filter_qval.0.05.out.xls.annotate.genebody.genelist.txt
+#                $group.dmr.filter_qval.0.05.out.xls.annotate.promoter.genelist.txt
+
+## annotation stat and plot
+$Rscript $myscr_path/plot_DMR.annotate.R $Pj_path/06_DMR_analyses/02_DMR_annotation/mCG_DMR/$group/$rules/$group.dmr.filter_qval.0.05.out.xls.annotate.xls \
+$Pj_path/06_DMR_analyses/02_DMR_annotation/mCG_DMR/$group/$rules/$group.dmr.filter_qval.0.05.out.annotate
+#|---result files:
+#                $group.dmr.filter_qval.0.05.out.annotate.stat.xls
+#                $group.dmr.filter_qval.0.05.out.annotate_barplot.pdf
+#                $group.dmr.filter_qval.0.05.out.annotate_roseplot.pdf
+
+##### 6.3 DMG function #####
+mkdir $Pj_path/06_DMR_analyses/03_DMG_function
+# mkdir according to you DMR detection type,pairwise group and rule: /mCG_DMR/$group/$rules/
+mkdir -p $Pj_path/06_DMR_analyses/03_DMG_function/mCG_DMR/$group/$rules/
+perl $EAGE/EAGE_function.v1.2.pl \
+-i $Pj_path/06_DMR_analyses/02_DMR_annotation/mCG_DMR/$group/$rules/$group.dmr.filter_qval.0.05.out.xls.annotate.xls.promoter.genelist.txt \
+-o $Pj_path/06_DMR_analyses/03_DMG_function/mCG_DMR/$group/$rules/ -s mmu -q 0.05 
+
+##### 6.4 DMR plot #####
+mkdir $Pj_path/06_DMR_analyses/04_DMR_plot
+mkdir -p $Pj_path/06_DMR_analyses/04_DMR_plot/mCG_DMR/$group/$rules/
+cd $Pj_path/06_DMR_analyses/04_DMR_plot/mCG_DMR/$group/$rules/
+
+# select DMR you want to plot in "*.dmr.filter_qval.0.05.out" file, and make a file contain DMRs in the same format as  "*.dmr.filter_qval.0.05.out" file.
+sort -k4,4g $Pj_path/06_DMR_analyses/01_DMR_detection/mCG_DMR/$group/$rules/$group.dmr.filter_qval.0.05.out.xls | head -21 > \
+$Pj_path/06_DMR_analyses/04_DMR_plot/mCG_DMR/$group/$rules/$group.top20.dmr.list
+
+vi $Pj_path/06_DMR_analyses/04_DMR_plot/mCG_DMR/$group/plot.sample.list
+#== "plot.list" file format:
+#CON  2,3,4
+#CASE  5,6,7
+
+perl $myscr_path/p03.DMR-ploter.pl \
+--I $Pj_path/06_DMR_analyses/04_DMR_plot/mCG_DMR/$group/$rules/$group.top20.dmr.list  \
+--E 1000 --C $Pj_path/06_DMR_analyses/01_DMR_detection/mCG_DMR/$group/$rules/$group.input \
+--F $Pj_path/06_DMR_analyses/04_DMR_plot/mCG_DMR/$group/plot.sample.list \
+--R $ref_fa \
+--G $Pj_path/03_global_methy/03_element_methy/element/genome.promoter.bed \
+--O $Pj_path/06_DMR_analyses/04_DMR_plot/mCG_DMR/$group/$rules/$group.dmr_plot \
+--Rscript $Rscript
+
+
+##### 6.5 DMR ovelap analysis #####
+# DMR venn
+export group1="Control-Case1" && export group2="Control-Case2" && export venn="Control-Case1_vs_Control-Case2"
+mkdir $Pj_path/06_DMR_analyses/05_DMR_overlap
+mkdir -p $Pj_path/06_DMR_analyses/05_DMR_overlap/$rules/mCG_DMR/$venn/
+
+perl -alne 'next if($.==1);print join "\:",@F[0..2]' $Pj_path/06_DMR_analyses/01_DMR_detection/mCG_DMR/$group1/$rules/$group1.dmr.filter_qval.0.05.out.xls > $Pj_path/06_DMR_analyses/05_DMR_overlap/$rules/mCG_DMR/$venn/$group1.Q0.05.dmr.list
+
+perl -alne 'next if($.==1);print join "\:",@F[0..2]' $Pj_path/06_DMR_analyses/01_DMR_detection/mCG_DMR/$group2/$rules/$group2.dmr.filter_qval.0.05.out.xls > $Pj_path/06_DMR_analyses/05_DMR_overlap/$rules/mCG_DMR/$venn/$group2.Q0.05.dmr.list
+
+perl $myscr_path/venn.main.v1.0.pl \
+-I $Pj_path/06_DMR_analyses/05_DMR_overlap/$rules/mCG_DMR/$venn/$group1.Q0.05.dmr.list,$Pj_path/06_DMR_analyses/05_DMR_overlap/$rules/mCG_DMR/$venn/$group2.Q0.05.dmr.list \
+-N $group1,$group2 -Rscript $Rscript \
+-O $Pj_path/06_DMR_analyses/05_DMR_overlap/$rules/mCG_DMR/$venn/$venn.DMR
+
+mkdir -p $Pj_path/06_DMR_analyses/05_DMR_overlap/$rules/mCG_DMG/$venn
+
+# promoter-DMG venn
+perl $myscr_path/venn.main.v1.0.pl \
+-I $Pj_path/06_DMR_analyses/02_DMR_annotation/mCG_DMR/$group1/$rules/$group1.dmr.filter_qval.0.05.out.xls.annotate.xls.promoter.genelist.txt,$Pj_path/06_DMR_analyses/02_DMR_annotation/mCG_DMR/$group2/$rules/$group2.dmr.filter_qval.0.05.out.xls.annotate.xls.promoter.genelist.txt \
+-N $group1,$group2 -Rscript $Rscript \
+-O $Pj_path/06_DMR_analyses/05_DMR_overlap/$rules/mCG_DMG/$venn/$venn.promoter-DMG
+
+# genebody-DMG venn
+perl $myscr_path/venn.main.v1.0.pl \
+-I $Pj_path/06_DMR_analyses/02_DMR_annotation/mCG_DMR/$group1/$rules/$group1.dmr.filter_qval.0.05.out.xls.annotate.xls.genebody.genelist.txt,$Pj_path/06_DMR_analyses/02_DMR_annota    tion/mCG_DMR/$group2/$rules/$group2.dmr.filter_qval.0.05.out.xls.annotate.xls.genebody.genelist.txt \
+-N $group1,$group2 -Rscript $Rscript \
+-O $Pj_path/06_DMR_analyses/05_DMR_overlap/$rules/mCG_DMG/$venn/$venn.genebody-DMG
+
+
+
+#########
+
+
+
+
+
